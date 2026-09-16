@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+pw_profile/
+data/raw_pages/
+data/raw_pages_nhatot/
+data/interim/
