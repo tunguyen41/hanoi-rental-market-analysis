@@ -23,7 +23,7 @@ OUT_CSV = Path("data/processed/listings.csv")
 COMMON_COLUMNS = [
     "source", "listing_id", "category", "url", "title",
     "price_vnd", "price_raw", "area_m2", "area_raw",
-    "bedrooms", "toilets", "city", "district", "ward", "location_raw",
+    "bedrooms", "toilets", "furniture", "city", "district", "ward", "location_raw",
     "posted_date", "scraped_at",
 ]
 
@@ -94,6 +94,7 @@ def adapt_batdongsan(df):
         "area_raw": df["area_raw"],
         "bedrooms": df["bedrooms_raw"],
         "toilets": df["toilets_raw"],
+        "furniture": pd.NA,        # not available as a structured field on batdongsan
         "city": "Hà Nội",
         "district": district.map(strip_admin_prefix),
         "ward": ward.map(strip_admin_prefix),
@@ -120,6 +121,7 @@ def adapt_nhatot(df):
         "area_raw": df["area_raw"],
         "bedrooms": df["bedrooms_raw"],
         "toilets": df["toilets_raw"],
+        "furniture": df["furniture"],
         "city": df["region_name"],
         "district": district.map(strip_admin_prefix),
         "ward": ward.map(strip_admin_prefix),
