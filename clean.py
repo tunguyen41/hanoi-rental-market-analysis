@@ -117,7 +117,7 @@ def adapt_nhatot(df):
         "title": df["title"],
         "price_vnd": df["price"],
         "price_raw": df["price_raw"],
-        "area_m2": df["area_raw"].map(parse_area_m2),
+        "area_m2": pd.to_numeric(df["area_raw"], errors="coerce"),  # already a clean number, not Vietnamese-grouped text
         "area_raw": df["area_raw"],
         "bedrooms": df["bedrooms_raw"],
         "toilets": df["toilets_raw"],
