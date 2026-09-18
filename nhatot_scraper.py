@@ -1,10 +1,10 @@
 """
 Scraper for nhatot.com - Hanoi rental listings, via its public JSON API.
 
-Unlike batdongsan.com.vn, nhatot's search-result HTML pages are behind a bot
-block (plain HTTP and even TLS-impersonated requests get a 403), but the
-JSON API that its own frontend calls (gateway.chotot.com) has no such
-protection - so no browser/Playwright is needed here, just plain HTTP.
+nhatot's search-result HTML pages are behind a bot block (plain HTTP and
+even TLS-impersonated requests get a 403), but the JSON API that its own
+frontend calls (gateway.chotot.com) has no such protection - so no
+browser/Playwright is needed here, just plain HTTP.
 
 The API mixes "for sale" and "for rent" ads under the same category id;
 each ad has a `type` field ("s" = sale, "u" = rent), so rent listings are
