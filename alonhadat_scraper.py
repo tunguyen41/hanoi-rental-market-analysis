@@ -125,7 +125,7 @@ def parse_page(html, cat, page):
             "city": first_text(card, "[itemprop=addressRegion]"),
             "old_address_raw": first_text(card, "p.old-address span"),
             "posted_raw": time_el.get("datetime") if time_el else None,
-            "body": (first_text(card, "p.brief") or "")[:500],
+            "body": (first_text(card, "p.brief") or "").replace("<< Xem chi tiết >>", "").strip()[:500],
             "page": page,
             "scraped_at": date.today().isoformat(),
         })

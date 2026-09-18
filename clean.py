@@ -39,6 +39,38 @@ def strip_admin_prefix(text):
     return ADMIN_PREFIX_RE.sub("", text.strip()) or pd.NA
 
 
+TOILET_RE = re.compile(r"(?<![\w.,])(\d{1,2})\s*(?:phòng\s+|nhà\s+)?(?:wc|vs|toilet|vệ sinh)\b",
+                       re.IGNORECASE)
+
+
+def extract_toilets(text):
+    """'2PN-2WC' / '01 vệ sinh' -> 2 / 1. Ambiguous (differing counts) or absent -> NaN."""
+    if pd.isna(text):
+        return pd.NA
+    counts = {int(n) for n in TOILET_RE.findall(str(text))}
+    counts = {c for c in counts if 1 <= c <= 10}
+    return counts.pop() if len(counts) == 1 else pd.NA
+
+
+FURNITURE_FULL_RE = re.compile(
+    r"full nội thất|full đồ|full nt|đầy đủ nội thất|nội thất đầy đủ|đủ nội thất|đủ đồ"
+    r"|nội thất cao cấp|nội thất sang trọng", re.IGNORECASE)
+FURNITURE_NOT_FULL_RE = re.compile(
+    r"không nội thất|ko nội thất|nhà trống|nguyên bản|bàn giao thô|chưa có nội thất"
+    r"|nội thất cơ bản|đồ cơ bản|hoàn thiện cơ bản", re.IGNORECASE)
+
+
+def extract_furniture_full(text):
+    """'Đầy đủ' when the text says full furniture and mentions no other level, else NaN.
+    Validated on 937 labeled nhatot rentals: 100% precision (479/479), 57% recall. Deriving
+    'Trống' from text was only ~24% precise, so it is deliberately never derived.
+    NaN means unknown, not unfurnished."""
+    if pd.isna(text):
+        return pd.NA
+    t = str(text)
+    return "Đầy đủ" if FURNITURE_FULL_RE.search(t) and not FURNITURE_NOT_FULL_RE.search(t) else pd.NA
+
+
 # ---------- per-source adapters ----------
 def adapt_nhatot(df):
     parts = df["location_raw"].fillna("").str.split(" - ")
@@ -85,8 +117,8 @@ def adapt_alonhadat(df):
         "area_m2": pd.to_numeric(df["area_raw"], errors="coerce"),  # already a clean number, not Vietnamese-grouped text
         "area_raw": df["area_raw"],
         "bedrooms": df["bedrooms_raw"],
-        "toilets": pd.NA,          # not available as a structured field on alonhadat
-        "furniture": pd.NA,        # not available as a structured field on alonhadat
+        "toilets": (df["title"].fillna("") + " " + df["body"].fillna("")).map(extract_toilets),  # derived from text; no structured field
+        "furniture": (df["title"].fillna("") + " " + df["body"].fillna("")).map(extract_furniture_full),  # derived from text; no structured field
         "city": df["city"],
         "district": district.map(strip_admin_prefix),
         "ward": df["ward"].map(strip_admin_prefix),
@@ -94,6 +126,17 @@ def adapt_alonhadat(df):
         "posted_date": pd.to_datetime(df["posted_raw"], errors="coerce"),
         "scraped_at": df["scraped_at"],
     })
+
+
+def drop_implausible(df):
+    """Drop rows that are data errors, not real market observations: areas <= 5 m2
+    (typos) and rent > 1M VND/m2 outside nha_rieng (price typos, whole-building leases)."""
+    ppm2 = df["price_vnd"] / df["area_m2"]
+    bad = (df["area_m2"] <= 5) | ((ppm2 > 1_000_000) & (df["category"] != "nha_rieng"))
+    if bad.any():
+        print(f"\n  dropping {bad.sum()} implausible rows (area <= 5 m2, or rent > 1M VND/m2 outside nha_rieng):")
+        print(df.loc[bad, ["listing_id", "category", "price_vnd", "area_m2"]].to_string(index=False))
+    return df[~bad]
 
 
 # name -> (interim csv filename, adapter function)
@@ -115,7 +158,7 @@ def main():
         print(f"  {name}: {len(df)} rows")
         frames.append(df)
 
-    combined = pd.concat(frames, ignore_index=True).drop_duplicates("listing_id")
+    combined = drop_implausible(pd.concat(frames, ignore_index=True).drop_duplicates("listing_id"))
 
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     combined.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")

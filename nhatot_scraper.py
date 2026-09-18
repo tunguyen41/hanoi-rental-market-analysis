@@ -40,17 +40,20 @@ REGION_HA_NOI = 12000
 CATEGORIES = {
     "can_ho_chung_cu": 1010,   # Can ho/Chung cu (apartment)
     "nha_rieng":       1020,   # Nha o (house)
-    "nha_tro":         1000,   # Phong tro (room)
+    "nha_tro":         1050,   # Phong tro (room); NOT 1000, which is the parent "Bat dong san" category (mixes offices, houses, apartments)
 }
 RENT_TYPE = "u"                # ad["type"]: "s" = for sale, "u" = for rent
-# ad["furnishing_sell"] code -> label (confirmed via a listing's detail-page
-# feature_params.seo_structure, which pairs each code with its display label).
-# Codes 1 (Nội thất cao cấp) and 2 (Nội thất đầy đủ) are merged into "Đầy đủ".
+# Furnishing code -> label for RENT ads, confirmed from each ad's own
+# feature_params.seo_structure (which pairs code with display label):
+#   1 = Nội thất cao cấp, 2 = Nội thất đầy đủ, 3 = Nhà trống.
+# Apartments/houses store it in ad["furnishing_sell"], rooms (cg=1050) in
+# ad["furnishing_rent"]. Do not reuse sale-ad labels (3 = "Hoàn thiện cơ bản",
+# 4 = "Bàn giao thô"): they don't apply to rentals.
+# Codes 1 and 2 are merged into "Đầy đủ".
 FURNISHING_LABELS = {
     1: "Đầy đủ",
     2: "Đầy đủ",
-    3: "Cơ bản",
-    4: "Thô",
+    3: "Trống",
 }
 RAW_DIR = Path("data/raw_pages_nhatot")
 OUT_CSV = Path("data/interim/listings_nhatot.csv")
@@ -113,7 +116,8 @@ def parse_page(raw_json, cat, offset):
             "area_raw": ad.get("size"),
             "bedrooms_raw": ad.get("rooms"),
             "toilets_raw": ad.get("toilets"),
-            "furniture": FURNISHING_LABELS.get(ad.get("furnishing_sell")),
+            "furniture": FURNISHING_LABELS.get(
+                ad.get("furnishing_sell") or ad.get("furnishing_rent")),
             "location_raw": " - ".join(filter(None, [
                 ad.get("street_name"), ad.get("ward_name"), ad.get("area_name"),
             ])),
