@@ -3,3 +3,4 @@ __pycache__/
 data/raw_pages_nhatot/
 data/interim/
 data/raw_pages_alonhadat/
+*.md
