@@ -45,6 +45,36 @@ CATEGORIES = {
     "nha_rieng":       "/cho-thue-nha/ha-noi",
     "nha_tro":         "/cho-thue-phong-tro-nha-tro/ha-noi",
 }
+# Per-district listing pages, for topping up thin (category, district) cells.
+# The site uses a different URL scheme per category; {id}/{slug} come from
+# DISTRICTS below and {page} is >= 2 (page 1 is the *_first URL).
+DISTRICT_URLS = {
+    "can_ho_chung_cu": ("/nha-dat/cho-thue/can-ho-chung-cu/ha-noi/{id}/{slug}.html",
+                        "/nha-dat/cho-thue/can-ho-chung-cu/ha-noi/{id}/{slug}/trang--{page}.html"),
+    "nha_rieng":       ("/cho-thue-nha-{slug}-ha-noi-q{id}.htm",
+                        "/cho-thue-nha-{slug}-ha-noi-q{id}/trang-{page}.htm"),
+    "nha_tro":         ("/nha-dat/cho-thue/phong-tro-nha-tro/ha-noi/{id}/{slug}.html",
+                        "/nha-dat/cho-thue/phong-tro-nha-tro/ha-noi/{id}/{slug}/trang--{page}.html"),
+}
+# District name (as it appears in processed/listings.csv) -> (site id, url slug),
+# taken from the site's own "Cho thuê ... <district>" link lists.
+DISTRICTS = {
+    "Ba Đình": (407, "quan-ba-dinh"), "Cầu Giấy": (408, "quan-cau-giay"),
+    "Đống Đa": (409, "quan-dong-da"), "Hà Đông": (410, "quan-ha-dong"),
+    "Hai Bà Trưng": (411, "quan-hai-ba-trung"), "Hoàn Kiếm": (412, "hoan-kiem"),
+    "Hoàng Mai": (413, "quan-hoang-mai"), "Long Biên": (414, "quan-long-bien"),
+    "Tây Hồ": (415, "quan-tay-ho"), "Thanh Xuân": (416, "quan-thanh-xuan"),
+    "Sơn Tây": (417, "thi-xa-son-tay"), "Ba Vì": (418, "huyen-ba-vi"),
+    "Chương Mỹ": (419, "huyen-chuong-my"), "Đan Phượng": (420, "huyen-dan-phuong"),
+    "Đông Anh": (421, "huyen-dong-anh"), "Gia Lâm": (422, "huyen-gia-lam"),
+    "Hoài Đức": (423, "huyen-hoai-duc"), "Mê Linh": (424, "huyen-me-linh"),
+    "Mỹ Đức": (425, "huyen-my-duc"), "Phú Xuyên": (426, "huyen-phu-xuyen"),
+    "Phúc Thọ": (427, "huyen-phuc-tho"), "Quốc Oai": (428, "huyen-quoc-oai"),
+    "Sóc Sơn": (429, "huyen-soc-son"), "Thạch Thất": (430, "huyen-thach-that"),
+    "Thanh Oai": (431, "huyen-thanh-oai"), "Thanh Trì": (432, "huyen-thanh-tri"),
+    "Thường Tín": (433, "huyen-thuong-tin"), "Nam Từ Liêm": (434, "quan-nam-tu-liem"),
+    "Ứng Hòa": (435, "huyen-ung-hoa"), "Bắc Từ Liêm": (704, "quan-bac-tu-liem"),
+}
 RAW_DIR = Path("data/raw_pages_alonhadat")
 OUT_CSV = Path("data/interim/listings_alonhadat.csv")
 
@@ -70,23 +100,31 @@ def page_url(path, page):
     return BASE + path + ("" if page == 1 else f"/trang-{page}")
 
 
-def download_pages(cat, path, max_pages):
-    folder = RAW_DIR / cat
+def district_page_url(cat, district, page):
+    first, nth = DISTRICT_URLS[cat]
+    did, slug = DISTRICTS[district]
+    return BASE + (first if page == 1 else nth).format(id=did, slug=slug, page=page)
+
+
+def download_pages(cat, max_pages, url_for, folder):
     folder.mkdir(parents=True, exist_ok=True)
     for p in range(1, max_pages + 1):
         f = folder / f"p{p}.html"
         if f.exists():
             continue                                  # resumable
-        html = fetch_page(page_url(path, p))
+        html = fetch_page(url_for(p))
         if not html:
             print(f"  stopping {cat} at page {p}")
             break
-        n_items = len(BeautifulSoup(html, "lxml").select("article.property-item"))
+        soup = BeautifulSoup(html, "lxml")
+        n_items = len(soup.select("article.property-item"))
         if n_items == 0:
             print(f"  reached the end of {cat} at page {p}")
             break
         f.write_text(html, encoding="utf-8")
-        print(f"  saved {cat} p{p} ({n_items} listings)")
+        print(f"  saved {folder.relative_to(RAW_DIR)} p{p} ({n_items} listings)")
+        if not soup.find("a", href=re.compile(rf"/trang-+{p + 1}(\.html?)?$")):
+            break                                      # no link to the next page: last page
         time.sleep(random.uniform(6, 12))             # be polite - site rate-limits (429) if hit too fast
 
 
@@ -134,8 +172,10 @@ def parse_page(html, cat, page):
 
 def parse_all():
     rows = []
-    for f in sorted(RAW_DIR.glob("*/p*.html")):
-        rows += parse_page(f.read_text(encoding="utf-8"), f.parent.name, int(f.stem[1:]))
+    # <cat>/p*.html (city-wide) and <cat>/q<id>/p*.html (per district)
+    for f in sorted(RAW_DIR.rglob("p*.html")):
+        cat = f.relative_to(RAW_DIR).parts[0]
+        rows += parse_page(f.read_text(encoding="utf-8"), cat, int(f.stem[1:]))
     df = pd.DataFrame(rows).drop_duplicates("listing_id")
     OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")   # utf-8-sig opens fine in Excel
@@ -147,10 +187,22 @@ def parse_all():
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--pages", type=int, default=3, help="max pages per category")
+    ap.add_argument("--categories", default=",".join(CATEGORIES),
+                    help="comma-separated subset of: " + ", ".join(CATEGORIES))
+    ap.add_argument("--districts", default="",
+                    help="comma-separated district names (e.g. 'Hoàn Kiếm,Đông Anh'): "
+                         "crawl those districts' pages instead of the city-wide ones")
     ap.add_argument("--parse-only", action="store_true")
     args = ap.parse_args()
     if not args.parse_only:
-        for cat, path in CATEGORIES.items():
-            print(f"== {cat}")
-            download_pages(cat, path, args.pages)
+        cats = args.categories.split(",")
+        districts = [d.strip() for d in args.districts.split(",") if d.strip()]
+        for cat in cats:
+            if not districts:
+                print(f"== {cat}")
+                download_pages(cat, args.pages, lambda p: page_url(CATEGORIES[cat], p), RAW_DIR / cat)
+            for d in districts:
+                print(f"== {cat} / {d}")
+                download_pages(cat, args.pages, lambda p: district_page_url(cat, d, p),
+                               RAW_DIR / cat / f"q{DISTRICTS[d][0]}")
     parse_all()
